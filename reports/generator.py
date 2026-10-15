@@ -89,12 +89,12 @@ def save_report(report_data: dict, output_dir: str = "reports/output") -> Report
 def _build_markdown(data: dict, timestamp: str) -> str:
     """Assemble a clean, readable Markdown audit report."""
 
-    score = data.get("final_score", "N/A")
-    status = data.get("status", "UNKNOWN")
-    skills = data.get("skills", [])
-    questions = data.get("questions", [])
-    infractions = data.get("infractions_log", [])
-    total_infractions = data.get("total_infractions", len(infractions))
+    score = data.get("final_integrity_score", data.get("final_score", "N/A"))
+    status = data.get("integrity_classification", data.get("status", "UNKNOWN"))
+    skills = data.get("skills_tested", data.get("skills", []))
+    questions = data.get("questions_asked", data.get("questions", []))
+    infractions = data.get("infractions_timeline", data.get("infractions_log", []))
+    total_infractions = data.get("total_infractions_flagged", data.get("total_infractions", len(infractions)))
     duration = data.get("interview_duration_sec", None)
 
     # Status badge / emoji

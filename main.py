@@ -166,6 +166,15 @@ def main():
             presence_data = presence_tracker.update(face_count)
             audio_data = audio_monitor.get_status()
 
+            # Ignore audio speech while the AI agent is reading a question aloud,
+            # preventing false positive "External voice detected (lips static)" flags.
+            if speaker.is_speaking():
+                audio_data = {
+                    "volume": audio_data.get("volume", 0.0),
+                    "is_speaking": False,
+                    "available": audio_data.get("available", False)
+                }
+
             # Run Integrity Scoring & Anomaly Evaluation
             score_data = scorer.evaluate(gaze_data, lip_data, audio_data, presence_data)
 
@@ -227,6 +236,7 @@ def main():
         cv2.destroyAllWindows()
         face_mesh.close()
         audio_monitor.stop()
+        speaker.shutdown()
 
         # Save Final Audit Report
         final_summary = scorer.get_summary()
