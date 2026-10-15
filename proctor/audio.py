@@ -41,17 +41,20 @@ class AudioMonitor:
         self.is_speaking = False
         self.running = False
         self.stream = None
+        self._lock = threading.Lock()
 
     def _audio_callback(self, indata, frames, time_info, status):
         """
-        TODO:
-        - Compute RMS of incoming audio buffer.
-        - Update self.current_volume and self.is_speaking.
+        Compute RMS of incoming audio buffer in real time.
+        Thread-safely update self.current_volume and self.is_speaking.
         """
         if indata is not None and len(indata) > 0:
             rms = np.sqrt(np.mean(indata**2))
-            self.current_volume = float(rms)
-            self.is_speaking = self.current_volume > self.speech_threshold
+            vol = float(rms)
+            speaking = vol > self.speech_threshold
+            with self._lock:
+                self.current_volume = vol
+                self.is_speaking = speaking
 
     def start(self):
         """
@@ -97,8 +100,11 @@ class AudioMonitor:
             "available": bool      # True if mic is actively recording
         }
         """
+        with self._lock:
+            vol = round(self.current_volume, 4)
+            speaking = self.is_speaking
         return {
-            "volume": round(self.current_volume, 4),
-            "is_speaking": self.is_speaking,
+            "volume": vol,
+            "is_speaking": speaking,
             "available": self.running
         }

@@ -45,24 +45,35 @@ class LipTracker:
 
     def compute_mar(self, landmarks, frame_w: int, frame_h: int) -> float:
         """
-        TODO:
-        - Extract lip points: Upper=13, Lower=14, Left=61, Right=291.
-        - Calculate vertical Euclidean distance / horizontal Euclidean distance.
-        - Return float MAR.
+        Extract lip points: Upper=13, Lower=14, Left=61, Right=291.
+        Calculate vertical Euclidean distance / horizontal Euclidean distance.
+        Return float MAR.
         """
-        # Placeholder skeleton until Person 2 fills in:
-        return 0.0
+        try:
+            # Extract landmark coordinates and scale to pixel space
+            upper_lip = np.array([landmarks[13].x * frame_w, landmarks[13].y * frame_h])
+            lower_lip = np.array([landmarks[14].x * frame_w, landmarks[14].y * frame_h])
+            left_corner = np.array([landmarks[61].x * frame_w, landmarks[61].y * frame_h])
+            right_corner = np.array([landmarks[291].x * frame_w, landmarks[291].y * frame_h])
+
+            # Vertical distance (lip opening)
+            vertical_dist = np.linalg.norm(upper_lip - lower_lip)
+
+            # Horizontal distance (mouth width)
+            horizontal_dist = np.linalg.norm(left_corner - right_corner)
+
+            if horizontal_dist < 1e-6:
+                return 0.0
+
+            return float(vertical_dist / horizontal_dist)
+        except (IndexError, AttributeError):
+            return 0.0
 
     def update(self, landmarks, frame_w: int, frame_h: int) -> dict:
         """
-        TODO:
-        - Compute current frame MAR.
-        - If MAR > talking_threshold:
-            - is_moving = True
-            - accumulate movement_duration
-        - Else:
-            - is_moving = False
-            - reset movement_duration
+        Compute current frame MAR.
+        If MAR > talking_threshold: is_moving = True, accumulate movement_duration.
+        Else: is_moving = False, reset movement_duration.
 
         RETURN CONTRACT (DO NOT CHANGE KEYS):
         {
@@ -71,9 +82,23 @@ class LipTracker:
             "duration": float      # Seconds mouth has been continuously moving
         }
         """
-        # Placeholder skeleton until Person 2 implements:
+        now = time.time()
+        mar = self.compute_mar(landmarks, frame_w, frame_h)
+
+        if mar > self.talking_threshold:
+            if not self.is_moving:
+                # Mouth just started moving — record start time
+                self.lip_moving_start_time = now
+                self.is_moving = True
+            self.movement_duration = now - self.lip_moving_start_time
+        else:
+            # Mouth is closed/static — reset tracking
+            self.is_moving = False
+            self.lip_moving_start_time = None
+            self.movement_duration = 0.0
+
         return {
-            "mar": 0.0,
+            "mar": round(mar, 4),
             "is_moving": self.is_moving,
             "duration": round(self.movement_duration, 1)
         }
