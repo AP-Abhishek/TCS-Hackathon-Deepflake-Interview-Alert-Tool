@@ -1,81 +1,81 @@
-"""Eye-gaze direction and off-screen duration tracking."""
+"""
+proctor/gaze.py
+---------------
+Responsible: Person 1 (Computer Vision - Eye & Gaze Tracking)
 
-from math import isfinite
-from time import monotonic
-from typing import Optional, Sequence
+TASK OBJECTIVE:
+- Track left & right iris center landmarks using MediaPipe Face Mesh.
+- Compute horizontal and vertical gaze ratios relative to inner and outer eye canthi.
+- Detect prolonged off-screen looking (e.g. secondary monitor or phone on desk).
+
+LANDMARK REFERENCES (MediaPipe Face Mesh 478 points):
+- Left Eye: Outer canthus = 33, Inner canthus = 133, Iris center = 468
+- Right Eye: Inner canthus = 362, Outer canthus = 263, Iris center = 473
+
+TODO for Person 1:
+1. Extract (x, y) coordinates for iris centers and eye corners from landmarks.
+2. Calculate the horizontal ratio = distance(iris, inner_corner) / eye_width.
+3. Classify gaze direction:
+   - ratio < 0.35 -> "LOOKING_RIGHT"
+   - ratio > 0.65 -> "LOOKING_LEFT"
+   - otherwise    -> "CENTER"
+4. Track sustained looking away duration (flag is_away=True if away >= away_alert_sec).
+5. Return a dictionary with the exact contract below.
+"""
+
+import time
+import numpy as np
 
 
 class GazeTracker:
-    """Estimate horizontal gaze direction from MediaPipe Face Mesh landmarks."""
-
-    LEFT_IRIS = 468
-    RIGHT_IRIS = 473
-    EYE_CORNERS = ((33, 133, LEFT_IRIS), (362, 263, RIGHT_IRIS))
-
-    def __init__(self, away_threshold: float = 2.5):
-        if not isfinite(away_threshold) or away_threshold < 0:
-            raise ValueError("away_threshold must be a finite, non-negative number")
-        self.away_threshold = away_threshold
-        self._away_since: Optional[float] = None
-
-    def update(self, landmarks: Optional[Sequence], now: Optional[float] = None) -> dict:
-        """Return gaze direction and sustained off-center duration.
-
-        `landmarks` must be one face's normalized MediaPipe Face Mesh landmarks.
-        Pass None when no face is available; the gaze timer will be reset.
+    def __init__(self, away_alert_sec: float = 2.0):
         """
-        timestamp = monotonic() if now is None else now
-        if not isfinite(timestamp):
-            raise ValueError("now must be a finite timestamp")
+        TODO:
+        - Store alert threshold duration.
+        - Initialize timers and tracking state variables.
+        """
+        self.away_alert_sec = away_alert_sec
+        self.gaze_away_start_time = None
+        self.current_direction = "CENTER"
+        self.is_gaze_away = False
+        self.gaze_away_duration = 0.0
 
-        if landmarks is None:
-            self._away_since = None
-            return {"direction": "CENTER", "is_away": False, "duration": 0.0}
+    def calculate_ratio(self, iris_pt: np.ndarray, corner_left: np.ndarray, corner_right: np.ndarray) -> float:
+        """
+        TODO:
+        - Calculate horizontal distance of iris from corner_left relative to total eye width.
+        - Return float ratio between 0.0 and 1.0.
+        """
+        eye_width = np.linalg.norm(corner_right - corner_left)
+        if eye_width < 1e-6:
+            return 0.5
+        dist_from_left = np.linalg.norm(iris_pt - corner_left)
+        return float(dist_from_left / eye_width)
 
-        required_index = max(index for eye in self.EYE_CORNERS for index in eye)
-        if len(landmarks) <= required_index:
-            raise ValueError(
-                f"expected at least {required_index + 1} face landmarks, got {len(landmarks)}"
-            )
+    def update(self, landmarks, frame_w: int, frame_h: int) -> dict:
+        """
+        TODO:
+        - Receive 478 MediaPipe landmarks.
+        - Extract left and right iris centers (468, 473) and eye corners.
+        - Compute left_ratio and right_ratio.
+        - Classify direction ('CENTER', 'LOOKING_LEFT', 'LOOKING_RIGHT').
+        - If direction is not 'CENTER', accumulate gaze_away_duration.
+        - If duration >= self.away_alert_sec, set is_away = True.
 
-        eye_ratios = []
-        for outer_index, inner_index, iris_index in self.EYE_CORNERS:
-            outer_x = self._x(landmarks[outer_index])
-            inner_x = self._x(landmarks[inner_index])
-            iris_x = self._x(landmarks[iris_index])
-            eye_width = abs(inner_x - outer_x)
-            if eye_width == 0:
-                raise ValueError("eye-corner landmarks must have distinct x coordinates")
-            eye_ratios.append((iris_x - min(outer_x, inner_x)) / eye_width)
-
-        horizontal_ratio = sum(eye_ratios) / len(eye_ratios)
-        if horizontal_ratio < 0.35:
-            direction = "LOOKING_LEFT"
-        elif horizontal_ratio > 0.65:
-            direction = "LOOKING_RIGHT"
-        else:
-            direction = "CENTER"
-
-        if direction == "CENTER":
-            self._away_since = None
-            duration = 0.0
-        else:
-            if self._away_since is None:
-                self._away_since = timestamp
-            duration = max(0.0, timestamp - self._away_since)
-
-        return {
-            "direction": direction,
-            "is_away": direction != "CENTER" and duration >= self.away_threshold,
-            "duration": duration,
+        RETURN CONTRACT (DO NOT CHANGE KEYS):
+        {
+            "direction": str,       # 'CENTER', 'LOOKING_LEFT', 'LOOKING_RIGHT'
+            "is_away": bool,        # True if candidate is looking away for >= away_alert_sec
+            "duration": float,      # Duration looking away in seconds
+            "left_ratio": float,    # 0.0 to 1.0
+            "right_ratio": float    # 0.0 to 1.0
         }
-
-    @staticmethod
-    def _x(landmark) -> float:
-        try:
-            x = float(landmark.x)
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise ValueError("face landmarks must have numeric x coordinates") from exc
-        if not isfinite(x):
-            raise ValueError("face landmark x coordinates must be finite")
-        return x
+        """
+        # Placeholder skeleton until Person 1 implements full calculation:
+        return {
+            "direction": self.current_direction,
+            "is_away": self.is_gaze_away,
+            "duration": round(self.gaze_away_duration, 1),
+            "left_ratio": 0.5,
+            "right_ratio": 0.5
+        }
