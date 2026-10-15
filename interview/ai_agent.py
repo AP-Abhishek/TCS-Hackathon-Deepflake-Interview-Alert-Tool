@@ -155,6 +155,80 @@ class AIInterviewAgent:
                     questions.append(question)
         return questions[:count]
 
+    def evaluate_answer(self, question: str, answer_text: str) -> dict:
+        """
+        Evaluates the candidate's spoken response using Gemini.
+        Returns:
+        {
+            "score": int (0 - 10),
+            "verdict": "GOOD" | "ACCEPTABLE" | "NEEDS_IMPROVEMENT" | "NO_RESPONSE",
+            "feedback": str (brief 1-sentence evaluation),
+            "is_adequate": bool
+        }
+        """
+        answer_text = (answer_text or "").strip()
+        if not answer_text or len(answer_text.split()) < 2:
+            return {
+                "score": 2,
+                "verdict": "NO_RESPONSE",
+                "feedback": "No audible or coherent verbal response recorded.",
+                "is_adequate": False
+            }
+
+        if self._client is not None:
+            try:
+                from google.genai import types
+
+                eval_prompt = (
+                    "You are a technical interviewer evaluating a candidate's verbal response to an interview question.\n"
+                    f"Question: {question}\n"
+                    f"Candidate's Answer: {answer_text}\n\n"
+                    "Evaluate technical accuracy, clarity, and completeness.\n"
+                    "Reply with JSON ONLY, with these exact keys:\n"
+                    '{"score": 8, "verdict": "GOOD", "feedback": "<one concise sentence>", "is_adequate": true}'
+                )
+
+                response = self._client.models.generate_content(
+                    model=self._model,
+                    contents=eval_prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3,
+                    ),
+                )
+                raw_text = (response.text or "").strip()
+                raw_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text, flags=re.IGNORECASE).strip()
+                result = json.loads(raw_text)
+                return {
+                    "score": int(result.get("score", 7)),
+                    "verdict": str(result.get("verdict", "ACCEPTABLE")),
+                    "feedback": str(result.get("feedback", "Response received and evaluated.")),
+                    "is_adequate": bool(result.get("is_adequate", True))
+                }
+            except Exception:
+                logger.warning("Gemini evaluation call failed; using fallback evaluation", exc_info=True)
+
+        words = len(answer_text.split())
+        if words >= 15:
+            score = 8
+            verdict = "GOOD"
+            feedback = "Detailed technical response provided."
+        elif words >= 5:
+            score = 6
+            verdict = "ACCEPTABLE"
+            feedback = "Brief response provided; covered basic points."
+        else:
+            score = 4
+            verdict = "NEEDS_IMPROVEMENT"
+            feedback = "Very brief answer with limited detail."
+
+        return {
+            "score": score,
+            "verdict": verdict,
+            "feedback": feedback,
+            "is_adequate": score >= 5
+        }
+
     # ------------------------------------------------------------------ internals
 
     def _generate_with_gemini(self, skills: Sequence[str], count: int) -> List[str]:

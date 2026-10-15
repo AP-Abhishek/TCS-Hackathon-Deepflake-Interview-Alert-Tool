@@ -184,8 +184,9 @@ class ProctorHUD:
         cv2.putText(frame, f"{lip_status} ({mar_val:.2f})", (panel_x + 130, panel_y + 165),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.48, lip_color, 1, cv2.LINE_AA)
 
-        # 2d. Audio Speech Activity
+        # 2d. Audio Speech Activity & Live Meter
         audio_speaking = proctor_state.get("audio_speaking", False)
+        audio_volume = proctor_state.get("audio_volume", 0.0)
         audio_color = self.COLOR_GREEN if audio_speaking else self.COLOR_MUTED
         audio_label = "ACTIVE SPEECH" if audio_speaking else "AMBIENT SILENCE"
 
@@ -193,6 +194,17 @@ class ProctorHUD:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.48, self.COLOR_MUTED, 1, cv2.LINE_AA)
         cv2.putText(frame, audio_label, (panel_x + 130, panel_y + 205),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, audio_color, 1, cv2.LINE_AA)
+
+        # Dynamic Live VU Volume Meter
+        mic_bar_x = panel_x + 15
+        mic_bar_y = panel_y + 215
+        mic_bar_w = panel_w - 30
+        mic_bar_h = 4
+        cv2.rectangle(frame, (mic_bar_x, mic_bar_y), (mic_bar_x + mic_bar_w, mic_bar_y + mic_bar_h), (40, 48, 60), -1)
+        meter_fill = int(mic_bar_w * min(1.0, audio_volume / 0.04))
+        if meter_fill > 0:
+            meter_color = self.COLOR_GREEN if audio_speaking else (120, 160, 120)
+            cv2.rectangle(frame, (mic_bar_x, mic_bar_y), (mic_bar_x + meter_fill, mic_bar_y + mic_bar_h), meter_color, -1)
 
         # 2e. Face Presence Count
         face_count = proctor_state.get("face_count", 1)
@@ -223,24 +235,68 @@ class ProctorHUD:
         cv2.putText(frame, "AI ENGINE: ACTIVE MONITORING", (panel_x + 25, panel_y + 335),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, self.COLOR_PRIMARY, 1, cv2.LINE_AA)
 
-        # ---------------- 3. BOTTOM ACTIVE ALERTS TOAST ----------------
+        # ---------------- 3. LIVE TRANSCRIPT & ANSWER PANEL ----------------
+        transcript_panel_x = 20
+        transcript_panel_y = frame_h - 135
+        transcript_panel_w = frame_w - 360
+        transcript_panel_h = 95
+
+        self.draw_glass_panel(frame, transcript_panel_x, transcript_panel_y,
+                              transcript_panel_w, transcript_panel_h, alpha=0.88)
+
+        candidate_transcript = interview_state.get("transcript", "").strip()
+        eval_feedback = interview_state.get("eval_feedback", "").strip()
+        is_evaluating = interview_state.get("is_evaluating", False)
+
+        if is_evaluating:
+            header_status = "EVALUATING ANSWER WITH AI..."
+            status_color = self.COLOR_AMBER
+        elif eval_feedback:
+            header_status = f"{eval_feedback}"
+            status_color = self.COLOR_GREEN
+        elif audio_speaking:
+            header_status = "MIC ACTIVE: CAPTURING VERBAL ANSWER..."
+            status_color = self.COLOR_GREEN
+        else:
+            header_status = "LISTENING... (SPEAK CLEARLY OR PRESS 'N' TO SUBMIT)"
+            status_color = self.COLOR_PRIMARY
+
+        cv2.putText(frame, f"CANDIDATE TRANSCRIPT  //  {header_status[:55]}",
+                    (transcript_panel_x + 15, transcript_panel_y + 24),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, status_color, 1, cv2.LINE_AA)
+
+        # Show wrapped transcript
+        if candidate_transcript:
+            display_text = f'"{candidate_transcript}"'
+        else:
+            display_text = "[Speak aloud into your microphone to answer this question...]"
+
+        t_lines = self.wrap_text(display_text, max_chars_per_line=58)
+        t_y = transcript_panel_y + 50
+        for line in t_lines[:2]:
+            t_color = self.COLOR_WHITE if candidate_transcript else self.COLOR_MUTED
+            cv2.putText(frame, line, (transcript_panel_x + 15, t_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.56, t_color, 1, cv2.LINE_AA)
+            t_y += 22
+
+        # ---------------- 4. ACTIVE ALERTS TOAST (ABOVE TRANSCRIPT) ----------------
         active_alerts = proctor_state.get("active_alerts", [])
         if active_alerts:
             toast_text = f"[!] {active_alerts[0]}"
             toast_w = max(400, len(toast_text) * 14)
             toast_x = max(20, (frame_w - toast_w) // 2)
-            toast_y = frame_h - 90
+            toast_y = transcript_panel_y - 50
 
             # Red warning toast with high opacity
-            self.draw_glass_panel(frame, toast_x, toast_y, toast_w, 42,
+            self.draw_glass_panel(frame, toast_x, toast_y, toast_w, 40,
                                   bg_color=(20, 20, 180), alpha=0.9, border_color=(80, 80, 255))
-            cv2.putText(frame, toast_text, (toast_x + 20, toast_y + 27),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.COLOR_WHITE, 2, cv2.LINE_AA)
+            cv2.putText(frame, toast_text, (toast_x + 20, toast_y + 26),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.58, self.COLOR_WHITE, 2, cv2.LINE_AA)
 
-        # ---------------- 4. BOTTOM KEYBOARD SHORTCUTS BAR ----------------
-        bottom_bar = "[N] Next Question   |   [Q] Finish & Generate Report"
-        cv2.putText(frame, bottom_bar, (30, frame_h - 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.COLOR_MUTED, 1, cv2.LINE_AA)
+        # ---------------- 5. BOTTOM KEYBOARD SHORTCUTS BAR ----------------
+        bottom_bar = "[N] Submit Answer & Next   |   [Q] Finish & Generate Audit Report"
+        cv2.putText(frame, bottom_bar, (30, frame_h - 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.COLOR_MUTED, 1, cv2.LINE_AA)
 
         # ---------------- 5. FINAL INTERVIEW COMPLETED OVERLAY ----------------
         if is_finished:

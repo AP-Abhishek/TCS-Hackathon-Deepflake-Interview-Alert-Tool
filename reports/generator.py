@@ -141,8 +141,28 @@ def _build_markdown(data: dict, timestamp: str) -> str:
             lines.append(f"- {skill}")
         lines.append("")
 
-    # ── Questions Asked ──────────────────────────────────────────────
-    if questions:
+    # ── Questions & Candidate Responses ─────────────────────────────
+    question_responses = data.get("question_responses", [])
+    if question_responses:
+        lines.append("---")
+        lines.append("")
+        lines.append("## 📝 Questions, Candidate Responses & Evaluations")
+        lines.append("")
+        for i, item in enumerate(question_responses, 1):
+            q_text = item.get("question", "")
+            ans_text = item.get("transcript", "No response recorded.")
+            eval_info = item.get("evaluation", {})
+            score_val = eval_info.get("score", "—")
+            verdict = eval_info.get("verdict", "—")
+            feedback = eval_info.get("feedback", "—")
+
+            lines.append(f"### Q{i}. {q_text}")
+            lines.append(f"> **Candidate Verbal Answer:** \"{ans_text}\"")
+            lines.append(f"> ")
+            lines.append(f"> 🤖 **AI Technical Check:** `{verdict}` | Score: **{score_val}/10**")
+            lines.append(f"> *Assessment:* {feedback}")
+            lines.append("")
+    elif questions:
         lines.append("---")
         lines.append("")
         lines.append("## 📝 Interview Questions")
