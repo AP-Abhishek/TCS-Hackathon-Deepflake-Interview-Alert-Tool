@@ -85,15 +85,10 @@ def main():
     audio_monitor = AudioMonitor(speech_threshold=config.AUDIO_SPEECH_THRESHOLD)
     audio_monitor.start()
 
-    # 4. Initialize MediaPipe Face Mesh (with Iris Refinement)
-    print("[4/5] Loading MediaPipe Face Mesh (Iris Landmarks 468/473)...")
-    mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(
-        max_num_faces=2,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
+    # 4. Initialize Face Mesh Engine (compatible with both legacy and modern MediaPipe)
+    print("[4/5] Loading Face Mesh Engine (Iris Landmarks 468/473)...")
+    from proctor.face_mesh import get_face_mesh
+    face_mesh = get_face_mesh(max_num_faces=2)
 
     # 5. Open Camera Capture
     print(f"[5/5] Connecting to Camera Device {args.camera}...")
@@ -114,6 +109,53 @@ def main():
     q_start_time = time.time()
     has_spoken_current_q = False
     is_finished = False
+    is_evaluating = False
+    eval_feedback = ""
+    eval_feedback_expire = 0.0
+    question_responses = []
+
+    def submit_and_advance():
+        nonlocal current_q_idx, q_start_time, has_spoken_current_q, is_finished, is_evaluating, eval_feedback, eval_feedback_expire
+        if is_finished or is_evaluating:
+            return
+
+        is_evaluating = True
+        current_q_text = questions[current_q_idx]
+        transcript = audio_monitor.get_transcript()
+
+        print(f"\n[AI Evaluation] Checking candidate's response to Question {current_q_idx + 1}...")
+        print(f"  Transcript: \"{transcript if transcript else '[No verbal response recorded]'}\"")
+
+        # Evaluate with Gemini
+        eval_res = agent.evaluate_answer(current_q_text, transcript)
+        verdict = eval_res.get("verdict", "ACCEPTABLE")
+        score = eval_res.get("score", 7)
+        feedback = eval_res.get("feedback", "Response reviewed.")
+
+        print(f"  Result: {verdict} ({score}/10) | {feedback}")
+
+        question_responses.append({
+            "question": current_q_text,
+            "transcript": transcript if transcript else "No verbal response recorded.",
+            "evaluation": eval_res
+        })
+
+        eval_feedback = f"{verdict} ({score}/10): {feedback}"
+        eval_feedback_expire = time.time() + 4.0
+
+        if current_q_idx + 1 < len(questions):
+            current_q_idx += 1
+            q_start_time = time.time()
+            has_spoken_current_q = False
+            audio_monitor.clear_transcript()
+            speaker.speak_async(f"Response checked. Next question.")
+            print(f"[Interview] Advanced to Question {current_q_idx + 1}\n")
+        else:
+            is_finished = True
+            speaker.speak_async("Thank you. All questions have been completed.")
+            print("[Interview] All questions completed.\n")
+
+        is_evaluating = False
 
     try:
         while True:
@@ -130,21 +172,26 @@ def main():
             # Trigger AI Agent Voice for Current Question
             if not has_spoken_current_q and not is_finished:
                 current_q_text = questions[current_q_idx]
+                audio_monitor.set_recording_enabled(False)  # Mute STT while AI reads question
                 speaker.speak_async(current_q_text)
                 has_spoken_current_q = True
+
+            # Enable mic STT once agent finishes reading the question
+            if has_spoken_current_q and not speaker.is_speaking() and not audio_monitor.recording_enabled:
+                audio_monitor.set_recording_enabled(True)
 
             # Calculate remaining time for current question
             elapsed_q_time = time.time() - q_start_time
             time_remaining = max(0, int(args.time_per_q - elapsed_q_time))
 
-            # Auto-advance question when time expires
-            if time_remaining <= 0 and not is_finished:
-                if current_q_idx + 1 < len(questions):
-                    current_q_idx += 1
-                    q_start_time = time.time()
-                    has_spoken_current_q = False
-                else:
-                    is_finished = True
+            # Auto-check and advance question on silence after answer OR when time expires
+            candidate_transcript = audio_monitor.get_transcript()
+            silence_after_answer = audio_monitor.get_silence_after_speech()
+            has_answered = len(candidate_transcript.split()) >= 3
+
+            if has_spoken_current_q and not speaker.is_speaking() and not is_evaluating and not is_finished:
+                if (has_answered and silence_after_answer >= 3.0) or (time_remaining <= 0):
+                    submit_and_advance()
 
             # Process Face Mesh
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -165,6 +212,15 @@ def main():
 
             presence_data = presence_tracker.update(face_count)
             audio_data = audio_monitor.get_status()
+
+            # Ignore audio speech while AI agent is reading a question aloud
+            if speaker.is_speaking():
+                audio_data = {
+                    "volume": audio_data.get("volume", 0.0),
+                    "is_speaking": False,
+                    "available": audio_data.get("available", False),
+                    "transcript": ""
+                }
 
             # Run Integrity Scoring & Anomaly Evaluation
             score_data = scorer.evaluate(gaze_data, lip_data, audio_data, presence_data)
@@ -192,13 +248,19 @@ def main():
                 "infractions_count": score_data.get("infractions_count", 0)
             }
 
+            # Clear temporary evaluation feedback toast after expiration
+            active_feedback = eval_feedback if (time.time() < eval_feedback_expire) else ""
+
             # Construct Interview State
             interview_state = {
                 "question_idx": current_q_idx + 1,
                 "total_questions": len(questions),
                 "current_question": questions[current_q_idx] if not is_finished else "Interview Complete.",
                 "time_remaining": time_remaining if not is_finished else 0,
-                "is_finished": is_finished
+                "is_finished": is_finished,
+                "transcript": candidate_transcript,
+                "is_evaluating": is_evaluating,
+                "eval_feedback": active_feedback
             }
 
             # Render High-Tech HUD
@@ -211,15 +273,8 @@ def main():
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q') or key == 27:  # 'q' or ESC
                 break
-            elif key == ord('n') and not is_finished:  # Advance to next question
-                if current_q_idx + 1 < len(questions):
-                    current_q_idx += 1
-                    q_start_time = time.time()
-                    has_spoken_current_q = False
-                    print(f"[Interview] Advanced to Question {current_q_idx + 1}")
-                else:
-                    is_finished = True
-                    print("[Interview] All questions completed.")
+            elif key == ord('n') and not is_finished:  # Submit answer & advance
+                submit_and_advance()
 
     finally:
         # Cleanup Resources
@@ -227,12 +282,14 @@ def main():
         cv2.destroyAllWindows()
         face_mesh.close()
         audio_monitor.stop()
+        speaker.shutdown()
 
         # Save Final Audit Report
         final_summary = scorer.get_summary()
         report_payload = {
             "skills_tested": skills_list,
             "questions_asked": questions,
+            "question_responses": question_responses,
             "final_integrity_score": final_summary["final_score"],
             "integrity_classification": "CLEAN" if final_summary["final_score"] >= 85 else (
                 "SUSPICIOUS" if final_summary["final_score"] >= 65 else "HIGH_RISK"

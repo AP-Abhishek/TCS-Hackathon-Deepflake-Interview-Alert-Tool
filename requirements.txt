@@ -11,3 +11,4 @@ python-dotenv>=1.0.0
 # Voice Synthesis (TTS) & Audio
 pyttsx3>=2.90
 sounddevice>=0.4.6
+SpeechRecognition>=3.10.0

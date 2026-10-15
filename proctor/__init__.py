@@ -7,4 +7,5 @@ Contains proctoring and cheat detection modules:
 - lips.py (Person 2)
 - audio.py (Person 2)
 - scoring.py (Person 4)
+- face_mesh.py (Universal FaceMesh engine)
 """
