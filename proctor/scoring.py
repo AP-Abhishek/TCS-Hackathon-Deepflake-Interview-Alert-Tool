@@ -37,6 +37,7 @@ class IntegrityScorer:
         self.score = initial_score
         self.infractions = []
         self.last_penalty_time = 0.0
+        self.last_infraction_times = {}
         self.whisper_start_time = None
         self.external_voice_start_time = None
 
@@ -126,13 +127,14 @@ class IntegrityScorer:
             "infractions_count": len(self.infractions)
         }
 
-    def _log_infraction(self, description: str):
+    def _log_infraction(self, description: str, cooldown_sec: float = 3.0):
         """Debounces and records unique timestamped infractions."""
         now = time.time()
-        if self.infractions and (now - self.last_penalty_time < 3.0):
-            if self.infractions[-1]["type"] == description:
-                return
+        last_time = self.last_infraction_times.get(description, 0.0)
+        if now - last_time < cooldown_sec:
+            return
 
+        self.last_infraction_times[description] = now
         self.last_penalty_time = now
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.infractions.append({
