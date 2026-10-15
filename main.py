@@ -85,15 +85,10 @@ def main():
     audio_monitor = AudioMonitor(speech_threshold=config.AUDIO_SPEECH_THRESHOLD)
     audio_monitor.start()
 
-    # 4. Initialize MediaPipe Face Mesh (with Iris Refinement)
-    print("[4/5] Loading MediaPipe Face Mesh (Iris Landmarks 468/473)...")
-    mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(
-        max_num_faces=2,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
+    # 4. Initialize Face Mesh Engine (compatible with both legacy and modern MediaPipe)
+    print("[4/5] Loading Face Mesh Engine (Iris Landmarks 468/473)...")
+    from proctor.face_mesh import get_face_mesh
+    face_mesh = get_face_mesh(max_num_faces=2)
 
     # 5. Open Camera Capture
     print(f"[5/5] Connecting to Camera Device {args.camera}...")

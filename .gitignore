@@ -35,3 +35,6 @@ wheels/
 
 # Output reports
 reports/output/
+
+# ML Models
+*.task
